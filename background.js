@@ -119,28 +119,28 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 
   // Handle URL changes
   if (changeInfo.url && isTwitchPopoutChat(changeInfo.url)) {
-    console.log(`URL changed in tab ${tabId}, executing scripts...`);
+    console.log(`[Service Worker] URL changed in tab ${tabId}, executing scripts...`);
     await executeScripts(tabId);
     return;
   }
 
   // Handle page refresh (when status changes to loading)
   if (changeInfo.status === 'loading' && isTwitchPopoutChat(tab.url)) {
-    console.log(`Page refresh detected in tab ${tabId}, waiting for complete...`);
+    console.log(`[Service Worker] Page refresh detected in tab ${tabId}, waiting for complete...`);
     
     // Wait for the page to be completely loaded
     const checkComplete = async () => {
       try {
         const updatedTab = await chrome.tabs.get(tabId);
         if (updatedTab.status === 'complete') {
-          console.log(`Tab ${tabId} loaded completely after refresh, executing scripts...`);
+          console.log(`[Service Worker] Tab ${tabId} loaded completely after refresh, executing scripts...`);
           await executeScripts(tabId);
         } else {
           // Check again in 500ms
           setTimeout(checkComplete, 500);
         }
       } catch (error) {
-        console.error(`Error checking tab ${tabId} status:`, error);
+        console.error(`[Service Worker] Error checking tab ${tabId} status:`, error);
       }
     };
 
