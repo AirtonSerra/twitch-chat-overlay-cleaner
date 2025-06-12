@@ -20,7 +20,7 @@ chrome.action.onClicked.addListener(async (tab) => {
         try {
           await chrome.scripting.executeScript({
             target: { tabId: twitchTab.id },
-            files: ['remover.js', 'viewStreamButton.js']
+            files: ['remover.js', 'viewStreamButton.js', 'commandMonitor.js']
           });
           successCount++;
           console.log(`Twitch Chat Overlay Cleaner executed successfully on tab: ${twitchTab.title}`);

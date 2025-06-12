@@ -1,0 +1,1274 @@
+// Twitch Command Monitor
+// Monitors chat commands and triggers visual/audio alerts when they reach specified frequency
+
+// Initialize command monitor (with protection against multiple executions)
+(function() {
+  'use strict';
+  
+  // Check if chat monitor already exists (permanent until page reload)
+  if (window.twitchChatMonitor || window.twitchChatMonitorExecuted || document.getElementById('twitch-chat-monitor-executed')) {
+    console.log('Twitch Chat Monitor: Already executed in this tab, skipping duplicate initialization');
+    return;
+  }
+  
+  // Mark as executed permanently (until page reload)
+  window.twitchChatMonitorExecuted = true;
+  
+  // Create a hidden marker element as backup verification
+  const marker = document.createElement('div');
+  marker.id = 'twitch-chat-monitor-executed';
+  marker.style.display = 'none';
+  marker.setAttribute('data-executed', new Date().toISOString());
+  document.body.appendChild(marker);
+
+class TwitchChatMonitor {
+  constructor() {
+    this.commandCooldowns = new Map(); // Track last detection time for each command
+    this.commandHistory = []; // Store command detection history
+    this.observer = null;
+    this.chatContainer = null;
+    this.isActive = false;
+    this.cooldownMinutes = 3; // Cooldown time in minutes
+    this.triggerCount = 3; // Number of times command must appear to trigger alert
+    this.maxHistoryItems = 10; // Maximum items in history
+    this.refreshInterval = null; // Periodic refresh interval
+    this.isHistoryVisible = false; // Track history panel visibility
+    this.uncopiedCommands = 0; // Count of commands not yet copied
+    this.copiedCommands = new Set(); // Track which commands from history were copied
+    this.neutralCommands = new Set(); // Track commands that became neutral (old commands)
+  }
+
+  // Initialize the chat monitor
+  init() {
+    this.findChatElements();
+    if (this.chatContainer) {
+      this.startObserving();
+      this.createToggleIcon(); // Create toggle icon
+      console.log(`Twitch Chat Monitor: Initialized successfully`);
+      console.log(`Twitch Chat Monitor: Configuration - Trigger: ${this.triggerCount} times, Cooldown: ${this.cooldownMinutes} minutes`);
+    } else {
+      console.log('Twitch Chat Monitor: Chat container not found, retrying...');
+      setTimeout(() => this.init(), 2000);
+    }
+  }
+
+  // Find chat container element
+  findChatElements() {
+    this.chatContainer = document.querySelector('#root > div > div.Layout-sc-1xcs6mc-0.eLriPR > div > div > section > div > div.Layout-sc-1xcs6mc-0.InjectLayout-sc-1i43xsx-0.chat-list--default.font-scale--default.hEdtxV > div.Layout-sc-1xcs6mc-0.InjectLayout-sc-1i43xsx-0.etHxQt > div.scrollable-area > div.simplebar-scroll-content > div > div');
+    
+    // Fallback to previous selector if main one fails
+    if (!this.chatContainer) {
+      this.chatContainer = document.querySelector('.chat-scrollable-area__message-container[data-test-selector="chat-scrollable-area__message-container"]');
+    }
+  }
+
+  // Start observing chat for new messages
+  startObserving() {
+    if (this.observer) {
+      this.observer.disconnect();
+    }
+
+    this.observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+          mutation.addedNodes.forEach((node) => {
+            if (node.nodeType === Node.ELEMENT_NODE) {
+              // Only process if this is a direct chat line, not nested elements
+              if (node.getAttribute && (
+                  node.getAttribute('data-a-target') === 'chat-line-message' ||
+                  node.classList?.contains('chat-line__message') ||
+                  node.querySelector('[data-a-target="chat-line-message-body"]')
+              )) {
+                console.log(`Twitch Chat Monitor: MutationObserver detected new chat line`);
+                this.processNewMessage(node);
+              }
+            }
+          });
+        }
+      });
+    });
+
+    this.observer.observe(this.chatContainer, {
+      childList: true,
+      subtree: true
+    });
+
+    this.isActive = true;
+    
+    // Set up periodic cleanup and refresh
+    this.setupPeriodicRefresh();
+    
+    console.log('Twitch Chat Monitor: Started observing chat messages');
+  }
+
+  // Set up periodic refresh to clean expired cooldowns and update UI
+  setupPeriodicRefresh() {
+    // Clear any existing interval
+    if (this.refreshInterval) {
+      clearInterval(this.refreshInterval);
+    }
+    
+    // Set up new interval (every 30 seconds)
+    this.refreshInterval = setInterval(() => {
+      this.cleanExpiredCooldowns();
+      // Only refresh visual timestamps if history panel is visible
+      if (this.isHistoryVisible) {
+        this.renderHistoryList();
+      }
+    }, 30000);
+  }
+
+  // Clean expired cooldowns and old marked messages
+  cleanExpiredCooldowns() {
+    const now = Date.now();
+    const cooldownMs = this.cooldownMinutes * 60 * 1000;
+    
+    // Clean expired cooldowns
+    for (const [command, timestamp] of this.commandCooldowns.entries()) {
+      if ((now - timestamp) >= cooldownMs) {
+        this.commandCooldowns.delete(command);
+        console.log(`Twitch Chat Monitor: Cooldown expired for command "${command}"`);
+      }
+    }
+    
+    // Clean old marked messages (older than 10 minutes to keep DOM clean)
+    const cleanupMs = 10 * 60 * 1000; // 10 minutes
+    const markedMessages = document.querySelectorAll('[data-twitch-monitor-processed="true"]');
+    
+    markedMessages.forEach(messageBody => {
+      try {
+        // Try to find a timestamp in the message (Twitch usually has timestamps)
+        const messageContainer = messageBody.closest('[data-test-selector="chat-line-message"]');
+        if (messageContainer) {
+          // If message is too old or no longer visible properly, remove our marker
+          const rect = messageContainer.getBoundingClientRect();
+          if (rect.height === 0) {
+            messageBody.removeAttribute('data-twitch-monitor-processed');
+          }
+        }
+      } catch (error) {
+        // If any error accessing the message, remove marker
+        messageBody.removeAttribute('data-twitch-monitor-processed');
+      }
+    });
+  }
+
+  // Process new chat message
+  processNewMessage(messageNode) {
+    try {
+      // Check if this node contains a message body
+      const messageBody = messageNode.querySelector('[data-a-target="chat-line-message-body"]');
+      if (!messageBody) {
+        return;
+      }
+
+      // Check if this message was already processed (marked)
+      if (messageBody.hasAttribute('data-twitch-monitor-processed')) {
+        return;
+      }
+
+      const messageText = messageBody.textContent.trim();
+      if (!messageText) {
+        return;
+      }
+
+      const command = this.extractCommand(messageText);
+      if (command) {
+        console.log(`Twitch Chat Monitor: New command detected: "${command}" from message: "${messageText}"`);
+        
+        // Mark this message as processed BEFORE handling
+        messageBody.setAttribute('data-twitch-monitor-processed', 'true');
+        
+        // Handle the command
+        this.handleCommand(command);
+      }
+      
+    } catch (error) {
+      console.error('Twitch Chat Monitor: Error processing message:', error);
+    }
+  }
+
+  // Extract command from message (starts with "!" followed by single word)
+  extractCommand(messageText) {
+    const commandRegex = /^!(\w+)$/;
+    const match = messageText.match(commandRegex);
+    return match ? match[0] : null; // Return full command including "!"
+  }
+
+  // Handle command detection and auto-response
+  handleCommand(command) {
+    const now = Date.now();
+    const lastTrigger = this.commandCooldowns.get(command);
+    const cooldownMs = this.cooldownMinutes * 60 * 1000; // Convert minutes to milliseconds
+    
+    // Check if command is still in cooldown
+    if (lastTrigger && (now - lastTrigger) < cooldownMs) {
+      const remainingTime = Math.ceil((cooldownMs - (now - lastTrigger)) / 1000 / 60);
+      console.log(`Twitch Chat Monitor: Command "${command}" is in cooldown for ${remainingTime} more minute(s)`);
+      return;
+    }
+    
+    // Count marked messages with this command
+    const commandCount = this.countMarkedCommands(command);
+    console.log(`Twitch Chat Monitor: Command "${command}" total count: ${commandCount}/${this.triggerCount}`);
+    
+    // Check if we reached the trigger threshold
+    if (commandCount >= this.triggerCount) {
+      console.log(`Twitch Chat Monitor: Trigger reached for "${command}"! Activating alert`);
+      
+      // Set cooldown timestamp
+      this.commandCooldowns.set(command, now);
+      
+      // Add to history
+      this.addToHistory(command, now);
+      
+      // Send alert
+      this.sendAutoResponse(command);
+      
+      // Update notification area if visible
+      if (this.isHistoryVisible) {
+        this.updateNotificationArea();
+      }
+    }
+  }
+
+  // Count how many messages with this command are marked as processed
+  countMarkedCommands(command) {
+    try {
+      const markedMessages = document.querySelectorAll('[data-a-target="chat-line-message-body"][data-twitch-monitor-processed="true"]');
+      let count = 0;
+      
+      markedMessages.forEach(messageBody => {
+        const messageText = messageBody.textContent.trim();
+        const extractedCommand = this.extractCommand(messageText);
+        if (extractedCommand === command) {
+          count++;
+        }
+      });
+      
+      return count;
+    } catch (error) {
+      console.error('Twitch Chat Monitor: Error counting marked commands:', error);
+      return 0;
+    }
+  }
+
+  // Show visual and audio alert for command
+  sendAutoResponse(command) {
+    try {
+      console.log(`Twitch Chat Monitor: Triggering alert for command: "${command}"`);
+      
+      // Show visual alert
+      this.showVisualAlert(command);
+      
+      // Play audio alert
+      this.playAudioAlert();
+      
+      // Flash browser tab
+      this.flashBrowserTab(command);
+      
+      console.log(`Twitch Chat Monitor: Alert triggered for: "${command}"`);
+      
+    } catch (error) {
+      console.error('Twitch Chat Monitor: Error triggering alert:', error);
+        }
+  }
+
+  // Add command to history
+  addToHistory(command, timestamp) {
+    const historyItem = {
+      command: command,
+      timestamp: timestamp,
+      time: new Date(timestamp).toLocaleTimeString('pt-BR', { 
+        hour: '2-digit', 
+        minute: '2-digit', 
+        second: '2-digit' 
+      }),
+      date: new Date(timestamp).toLocaleDateString('pt-BR'),
+      id: `${command}-${timestamp}` // Unique identifier for tracking copied status
+    };
+    
+    // Add to beginning of array
+    this.commandHistory.unshift(historyItem);
+    
+    // Keep only max items
+    if (this.commandHistory.length > this.maxHistoryItems) {
+      this.commandHistory = this.commandHistory.slice(0, this.maxHistoryItems);
+    }
+    
+    // Increment uncopied commands counter
+    this.uncopiedCommands++;
+    this.updateToggleIndicator();
+    
+    console.log(`Twitch Chat Monitor: Added "${command}" to history at ${historyItem.time}`);
+  }
+
+  // Create toggle icon in top-left corner
+  createToggleIcon() {
+    try {
+      // Remove existing icon if present
+      const existingIcon = document.getElementById('twitch-history-toggle');
+      if (existingIcon) {
+        existingIcon.remove();
+      }
+
+      const toggleIcon = document.createElement('div');
+      toggleIcon.id = 'twitch-history-toggle';
+      toggleIcon.innerHTML = `
+        <div style="
+          position: fixed;
+          top: 20px;
+          left: 20px;
+          z-index: 10001;
+          width: 40px;
+          height: 40px;
+          background: linear-gradient(135deg, #9146ff, #6441a5);
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          box-shadow: 0 4px 16px rgba(145, 70, 255, 0.4);
+          transition: all 0.3s ease;
+          font-size: 18px;
+          user-select: none;
+          position: relative;
+        " title="Click to show/hide detected commands">
+          📋
+        </div>
+      `;
+
+      // Add hover effects via CSS
+      if (!document.getElementById('toggle-icon-styles')) {
+        const style = document.createElement('style');
+        style.id = 'toggle-icon-styles';
+        style.textContent = `
+          #twitch-history-toggle:hover > div {
+            transform: scale(1.1);
+            box-shadow: 0 6px 20px rgba(145, 70, 255, 0.6);
+          }
+          #twitch-history-toggle.active > div {
+            background: linear-gradient(135deg, #00b894, #00a085);
+            box-shadow: 0 4px 16px rgba(0, 184, 148, 0.4);
+          }
+        `;
+        document.head.appendChild(style);
+      }
+
+      // Add click handler
+      toggleIcon.addEventListener('click', () => {
+        this.toggleHistoryPanel();
+      });
+
+      document.body.appendChild(toggleIcon);
+      console.log('Twitch Chat Monitor: Toggle icon created');
+
+    } catch (error) {
+      console.error('Twitch Chat Monitor: Error creating toggle icon:', error);
+    }
+  }
+
+  // Update toggle indicator to show uncopied commands count
+  updateToggleIndicator() {
+    try {
+      const toggleIcon = document.getElementById('twitch-history-toggle');
+      if (!toggleIcon) return;
+
+      // Remove existing indicator
+      const existingIndicator = toggleIcon.querySelector('.uncopied-indicator');
+      if (existingIndicator) {
+        existingIndicator.remove();
+      }
+
+      // Add indicator if there are uncopied commands
+      if (this.uncopiedCommands > 0) {
+        const indicator = document.createElement('div');
+        indicator.className = 'uncopied-indicator';
+        indicator.innerHTML = this.uncopiedCommands > 9 ? '9+' : this.uncopiedCommands.toString();
+        indicator.style.cssText = `
+          position: absolute;
+          top: -5px;
+          right: -5px;
+          background: #ff4444;
+          color: white;
+          border-radius: 50%;
+          width: 20px;
+          height: 20px;
+          font-size: 11px;
+          font-weight: bold;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border: 2px solid white;
+          box-shadow: 0 2px 8px rgba(255, 68, 68, 0.5);
+          animation: pulse 2s infinite;
+        `;
+        
+        toggleIcon.firstElementChild.appendChild(indicator);
+      }
+
+    } catch (error) {
+      console.error('Twitch Chat Monitor: Error updating toggle indicator:', error);
+    }
+  }
+
+  // Toggle history panel visibility
+  toggleHistoryPanel() {
+    try {
+      this.isHistoryVisible = !this.isHistoryVisible;
+      const toggleIcon = document.getElementById('twitch-history-toggle');
+      
+      if (this.isHistoryVisible) {
+        // Show history panel
+        this.updateNotificationArea();
+        if (toggleIcon) {
+          toggleIcon.classList.add('active');
+        }
+        
+        console.log('Twitch Chat Monitor: History panel shown');
+      } else {
+        // Hide history panel
+        const notificationArea = document.getElementById('twitch-command-history');
+        if (notificationArea) {
+          notificationArea.style.animation = 'slideOut 0.3s ease-in';
+          setTimeout(() => {
+            if (notificationArea.parentNode) {
+              notificationArea.remove();
+            }
+          }, 300);
+        }
+        if (toggleIcon) {
+          toggleIcon.classList.remove('active');
+        }
+        
+        // Mark all current commands as neutral when panel is CLOSED
+        this.commandHistory.forEach(item => {
+          this.neutralCommands.add(item.id);
+        });
+        this.uncopiedCommands = 0;
+        this.copiedCommands.clear();
+        this.updateToggleIndicator();
+        
+        console.log('Twitch Chat Monitor: History panel hidden, all commands marked as neutral');
+      }
+
+    } catch (error) {
+      console.error('Twitch Chat Monitor: Error toggling history panel:', error);
+    }
+  }
+
+  // Create or update notification area (only when visible)
+  updateNotificationArea() {
+    try {
+      // Only create/update if supposed to be visible
+      if (!this.isHistoryVisible) return;
+
+      let notificationArea = document.getElementById('twitch-command-history');
+      
+      if (!notificationArea) {
+        // Create notification area with slide-in animation
+        notificationArea = document.createElement('div');
+        notificationArea.id = 'twitch-command-history';
+        notificationArea.innerHTML = `
+          <div style="
+            position: fixed;
+            top: 70px;
+            left: 20px;
+            z-index: 9999;
+            background: rgba(0, 0, 0, 0.85);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Inter', Arial, sans-serif;
+            font-size: 12px;
+            max-width: 300px;
+            border: 1px solid rgba(145, 70, 255, 0.3);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+            animation: slideIn 0.3s ease-out;
+          ">
+            <div style="
+              font-size: 14px; 
+              font-weight: bold; 
+              margin-bottom: 10px; 
+              color: #9146ff;
+              border-bottom: 1px solid rgba(145, 70, 255, 0.3);
+              padding-bottom: 5px;
+            ">
+              📋 Commands Detected
+            </div>
+            <div id="command-history-list" style="max-height: 200px; overflow-y: auto; overflow-x: hidden;">
+              <!-- History items will be inserted here -->
+            </div>
+          </div>
+        `;
+
+        // Add slide animations if not already added
+        if (!document.getElementById('history-panel-styles')) {
+          const style = document.createElement('style');
+          style.id = 'history-panel-styles';
+          style.textContent = `
+            @keyframes slideIn {
+              0% { transform: translateX(-100%); opacity: 0; }
+              100% { transform: translateX(0); opacity: 1; }
+            }
+            @keyframes slideOut {
+              0% { transform: translateX(0); opacity: 1; }
+              100% { transform: translateX(-100%); opacity: 0; }
+            }
+            .history-item::after {
+              content: '📋';
+              opacity: 0;
+              font-size: 10px;
+              margin-left: 5px;
+              transition: opacity 0.2s ease;
+            }
+            .history-item:hover::after {
+              opacity: 0.6;
+            }
+          `;
+          document.head.appendChild(style);
+        }
+        
+        document.body.appendChild(notificationArea);
+      }
+      
+      // Update history list
+      this.renderHistoryList();
+      
+    } catch (error) {
+      console.error('Twitch Chat Monitor: Error updating notification area:', error);
+    }
+  }
+
+  // Render history list
+  renderHistoryList() {
+    try {
+      const historyList = document.getElementById('command-history-list');
+      if (!historyList) return;
+      
+      if (this.commandHistory.length === 0) {
+        historyList.innerHTML = '<div style="opacity: 0.6; font-style: italic;">No commands detected yet</div>';
+        return;
+      }
+      
+      let historyHTML = '';
+      this.commandHistory.forEach((item, index) => {
+        const isRecent = (Date.now() - item.timestamp) < 60000; // Last minute
+        const isCopied = this.copiedCommands.has(item.id);
+        const isNeutral = this.neutralCommands.has(item.id);
+        
+        // Determine colors based on state
+        let backgroundColor, borderColor, textColor;
+        
+        if (isCopied) {
+          // Green for copied commands
+          backgroundColor = 'rgba(0, 184, 148, 0.15)';
+          borderColor = 'rgba(0, 184, 148, 0.3)';
+          textColor = '#00b894';
+        } else if (isNeutral) {
+          // Gray for neutral commands
+          backgroundColor = 'rgba(255, 255, 255, 0.05)';
+          borderColor = 'rgba(255, 255, 255, 0.2)';
+          textColor = '#ffffff';
+        } else {
+          // Red for not copied commands
+          backgroundColor = 'rgba(255, 68, 68, 0.15)';
+          borderColor = 'rgba(255, 68, 68, 0.3)';
+          textColor = '#ff4444';
+        }
+        
+        historyHTML += `
+          <div class="history-item" data-command="${item.command}" data-id="${item.id}" style="
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center;
+            padding: 6px 8px;
+            margin: 3px 0;
+            background: ${backgroundColor};
+            border: 1px solid ${borderColor};
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-size: 11px;
+          " title="Click to copy: ${item.command}">
+            <div style="
+              font-weight: bold; 
+              color: ${textColor};
+              flex: 1;
+            ">${item.command}</div>
+            <div style="
+              font-size: 10px; 
+              opacity: 0.7; 
+              color: ${textColor};
+              min-width: 45px;
+              text-align: right;
+            ">${item.time}</div>
+            ${isRecent ? '<div style="width: 8px; height: 8px; background: #00f5ff; border-radius: 50%; margin-left: 5px; box-shadow: 0 0 4px #00f5ff;"></div>' : ''}
+          </div>
+        `;
+      });
+      
+      historyList.innerHTML = historyHTML;
+      
+      // Add click listeners to history items
+      this.addHistoryItemListeners();
+      
+    } catch (error) {
+      console.error('Twitch Chat Monitor: Error rendering history list:', error);
+    }
+  }
+
+  // Add click listeners to history items for copying
+  addHistoryItemListeners() {
+    try {
+      const historyItems = document.querySelectorAll('.history-item');
+      
+      historyItems.forEach(item => {
+        item.addEventListener('click', (e) => {
+          const command = item.getAttribute('data-command');
+          if (command) {
+            this.copyCommandFromHistory(command, item);
+          }
+        });
+        
+        // Store original colors for hover effects
+        const originalBackground = item.style.background;
+        const originalBorder = item.style.borderColor || item.style.border;
+        
+        // Add hover effects
+        item.addEventListener('mouseenter', () => {
+          item.style.transform = 'scale(1.02)';
+          // Brighten the existing background slightly on hover
+          if (item.style.background.includes('0, 184, 148')) {
+            // Green (copied) - make brighter green
+            item.style.background = 'rgba(0, 184, 148, 0.25)';
+          } else if (item.style.background.includes('255, 68, 68')) {
+            // Red (not copied) - make brighter red
+            item.style.background = 'rgba(255, 68, 68, 0.25)';
+          } else {
+            // Neutral - make brighter white
+            item.style.background = 'rgba(255, 255, 255, 0.1)';
+          }
+        });
+        
+        item.addEventListener('mouseleave', () => {
+          item.style.transform = 'scale(1)';
+          item.style.background = originalBackground;
+        });
+      });
+      
+    } catch (error) {
+      console.error('Twitch Chat Monitor: Error adding history item listeners:', error);
+    }
+  }
+
+  // Copy command from history
+  async copyCommandFromHistory(command, itemElement) {
+    try {
+      const itemId = itemElement.getAttribute('data-id');
+      
+      // Use modern Clipboard API
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(command);
+        console.log(`Twitch Chat Monitor: Command "${command}" copied from history`);
+      } else {
+        // Fallback for older browsers
+        const textArea = document.createElement('textarea');
+        textArea.value = command;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        textArea.style.top = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand('copy');
+        textArea.remove();
+        console.log(`Twitch Chat Monitor: Command "${command}" copied from history (fallback)`);
+      }
+      
+      // Mark this specific command as copied
+      if (itemId) {
+        this.copiedCommands.add(itemId);
+      }
+      
+      // Decrement uncopied counter
+      if (this.uncopiedCommands > 0) {
+        this.uncopiedCommands--;
+        this.updateToggleIndicator();
+      }
+      
+      // Show visual feedback on the item
+      this.showHistoryItemFeedback(itemElement, command);
+      
+      // Re-render the list to update colors
+      setTimeout(() => {
+        this.renderHistoryList();
+      }, 1100); // After feedback animation
+      
+    } catch (error) {
+      console.error('Twitch Chat Monitor: Error copying command from history:', error);
+      this.showHistoryItemError(itemElement);
+    }
+  }
+
+  // Show visual feedback when history item is copied
+  showHistoryItemFeedback(itemElement, command) {
+    try {
+      const originalBackground = itemElement.style.background;
+      const originalContent = itemElement.innerHTML;
+      
+      // Flash green and show checkmark with immediate white text
+      itemElement.style.background = 'linear-gradient(135deg, #00b894, #00a085)';
+      itemElement.style.transform = 'scale(1.02)';
+      
+      // Add checkmark temporarily with white text immediately
+      const commandDiv = itemElement.querySelector('div');
+      if (commandDiv) {
+        commandDiv.innerHTML = `✅ ${command} - Copied!`;
+        commandDiv.style.color = '#ffffff'; // Force white color immediately
+      }
+      
+      // Change timestamp text color to white
+      const timestampDiv = itemElement.querySelector('div:nth-child(2)');
+      if (timestampDiv) {
+        timestampDiv.style.color = '#ffffff';
+      }
+      
+      // Revert after 1 second
+      setTimeout(() => {
+        itemElement.style.background = originalBackground;
+        itemElement.style.transform = 'scale(1)';
+        itemElement.innerHTML = originalContent;
+        
+        // Re-add listeners since we replaced innerHTML
+        this.addHistoryItemListeners();
+      }, 1000);
+      
+    } catch (error) {
+      console.error('Twitch Chat Monitor: Error showing history item feedback:', error);
+    }
+  }
+
+  // Show error feedback for history item
+  showHistoryItemError(itemElement) {
+    try {
+      const originalBackground = itemElement.style.background;
+      
+      // Flash red
+      itemElement.style.background = 'linear-gradient(135deg, #e74c3c, #c0392b)';
+      itemElement.style.transform = 'scale(1.02)';
+      
+      // Revert after 500ms
+      setTimeout(() => {
+        itemElement.style.background = originalBackground;
+        itemElement.style.transform = 'scale(1)';
+      }, 500);
+      
+    } catch (error) {
+      console.error('Twitch Chat Monitor: Error showing history item error:', error);
+    }
+  }
+
+  // Show visual alert overlay
+  showVisualAlert(command) {
+    try {
+      // Remove any existing alert
+      const existingAlert = document.getElementById('twitch-chat-alert');
+      if (existingAlert) {
+        existingAlert.remove();
+      }
+      
+      // Create alert overlay
+      const alertOverlay = document.createElement('div');
+      alertOverlay.id = 'twitch-chat-alert';
+      alertOverlay.innerHTML = `
+        <div style="
+          position: fixed;
+          top: 20px;
+          right: 20px;
+          z-index: 10000;
+          background: linear-gradient(135deg, #9146ff, #6441a5);
+          color: white;
+          padding: 20px 30px;
+          border-radius: 10px;
+          box-shadow: 0 8px 32px rgba(145, 70, 255, 0.3);
+          font-family: 'Inter', Arial, sans-serif;
+          font-size: 18px;
+          font-weight: bold;
+          text-align: center;
+          animation: slideInBounce 0.6s ease-out, pulse 2s infinite;
+          border: 2px solid rgba(255, 255, 255, 0.2);
+          backdrop-filter: blur(10px);
+          min-width: 200px;
+        ">
+          <div style="margin-bottom: 10px; font-size: 24px;">🎯</div>
+          <div>Command Detected!</div>
+          <div style="
+            font-size: 24px; 
+            margin: 10px 0; 
+            color: #00f5ff;
+            text-shadow: 0 0 10px rgba(0, 245, 255, 0.5);
+          ">${command}</div>
+          <div style="font-size: 14px; opacity: 0.8;">${this.triggerCount} ${this.triggerCount === 1 ? 'time' : 'times'} in chat</div>
+          <div style="font-size: 12px; opacity: 0.6; margin-top: 8px; border-top: 1px solid rgba(255,255,255,0.2); padding-top: 8px;">👆 Click to copy</div>
+        </div>
+      `;
+      
+      // Add CSS animations
+      if (!document.getElementById('twitch-alert-styles')) {
+        const style = document.createElement('style');
+        style.id = 'twitch-alert-styles';
+        style.textContent = `
+          @keyframes slideInBounce {
+            0% { transform: translateX(100%) scale(0.8); opacity: 0; }
+            60% { transform: translateX(-10px) scale(1.05); opacity: 1; }
+            100% { transform: translateX(0) scale(1); opacity: 1; }
+          }
+          @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.02); }
+          }
+          @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            75% { transform: translateX(5px); }
+          }
+          @keyframes fadeInScale {
+            0% { opacity: 0.7; transform: scale(0.9); }
+            100% { opacity: 1; transform: scale(1); }
+          }
+          #twitch-chat-alert:hover {
+            box-shadow: 0 12px 48px rgba(145, 70, 255, 0.4);
+            transition: box-shadow 0.2s ease;
+          }
+        `;
+        document.head.appendChild(style);
+      }
+      
+      // Add to page
+      document.body.appendChild(alertOverlay);
+      
+      // Store timeout reference for potential cancellation
+      const autoRemoveTimeout = setTimeout(() => {
+        if (alertOverlay && alertOverlay.parentNode) {
+          alertOverlay.style.animation = 'slideInBounce 0.3s ease-in reverse';
+          setTimeout(() => alertOverlay.remove(), 300);
+        }
+      }, 10000);
+      
+      // Add click functionality to copy command to clipboard
+      alertOverlay.addEventListener('click', () => {
+        // Cancel the auto-remove timeout since we're closing manually after copy
+        clearTimeout(autoRemoveTimeout);
+        this.copyToClipboard(command, alertOverlay);
+      });
+      
+      // Add hover effect
+      alertOverlay.style.cursor = 'pointer';
+      alertOverlay.title = 'Click to copy the command';
+      
+    } catch (error) {
+      console.error('Twitch Chat Monitor: Error showing visual alert:', error);
+    }
+  }
+
+  // Copy command to clipboard
+  async copyToClipboard(command, alertElement) {
+    try {
+      // Use modern Clipboard API
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(command);
+        console.log(`Twitch Chat Monitor: Command "${command}" copied to clipboard`);
+      } else {
+        // Fallback for older browsers
+        const textArea = document.createElement('textarea');
+        textArea.value = command;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        textArea.style.top = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand('copy');
+        textArea.remove();
+        console.log(`Twitch Chat Monitor: Command "${command}" copied to clipboard (fallback)`);
+      }
+      
+      // Mark command as copied (decrement uncopied counter)
+      if (this.uncopiedCommands > 0) {
+        this.uncopiedCommands--;
+        this.updateToggleIndicator();
+      }
+
+      // Find and mark the command as copied in history
+      const historyItem = this.commandHistory.find(item => item.command === command);
+      if (historyItem) {
+        this.copiedCommands.add(historyItem.id);
+        // Re-render the history list immediately if it's visible
+        if (this.isHistoryVisible) {
+          this.renderHistoryList();
+        }
+      }
+      
+      // Show visual feedback
+      this.showCopyFeedback(alertElement, command);
+      
+    } catch (error) {
+      console.error('Twitch Chat Monitor: Error copying to clipboard:', error);
+      this.showCopyError(alertElement);
+    }
+  }
+
+  // Show visual feedback when command is copied
+  showCopyFeedback(alertElement, command) {
+    try {
+      // Remove any existing animations to avoid conflicts
+      alertElement.style.animation = 'none';
+      
+      // Change content to show success
+      alertElement.innerHTML = `
+        <div style="
+          position: fixed;
+          top: 20px;
+          right: 20px;
+          z-index: 10000;
+          background: linear-gradient(135deg, #00b894, #00a085);
+          color: white;
+          padding: 20px 30px;
+          border-radius: 10px;
+          box-shadow: 0 8px 32px rgba(0, 184, 148, 0.3);
+          font-family: 'Inter', Arial, sans-serif;
+          font-size: 18px;
+          font-weight: bold;
+          text-align: center;
+          border: 2px solid rgba(255, 255, 255, 0.2);
+          backdrop-filter: blur(10px);
+          min-width: 200px;
+          animation: none;
+        ">
+          <div style="margin-bottom: 10px; font-size: 24px;">✅</div>
+          <div>Copied!</div>
+          <div style="
+            font-size: 20px; 
+            margin: 10px 0; 
+            color: #ffffff;
+            text-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
+          ">${command}</div>
+          <div style="font-size: 14px; opacity: 0.8;">Ready to paste (Ctrl+V)</div>
+        </div>
+      `;
+      
+      // Apply a simple fade-in animation for the success state
+      setTimeout(() => {
+        if (alertElement && alertElement.firstElementChild) {
+          alertElement.firstElementChild.style.animation = 'fadeInScale 0.3s ease-out';
+        }
+      }, 50);
+      
+      // Close alert after showing success feedback (1.5 seconds)
+      setTimeout(() => {
+        if (alertElement && alertElement.parentNode) {
+          // Apply fade-out animation
+          alertElement.style.transition = 'opacity 0.3s ease-out, transform 0.3s ease-out';
+          alertElement.style.opacity = '0';
+          alertElement.style.transform = 'translateX(100px)';
+          
+          // Remove element after animation
+          setTimeout(() => {
+            if (alertElement.parentNode) {
+              alertElement.remove();
+            }
+          }, 300);
+        }
+      }, 1500);
+      
+    } catch (error) {
+      console.error('Twitch Chat Monitor: Error showing copy feedback:', error);
+    }
+  }
+
+  // Show error feedback if copy fails
+  showCopyError(alertElement) {
+    try {
+      const originalContent = alertElement.innerHTML;
+      
+      // Change content to show error
+      alertElement.innerHTML = `
+        <div style="
+          position: fixed;
+          top: 20px;
+          right: 20px;
+          z-index: 10000;
+          background: linear-gradient(135deg, #e74c3c, #c0392b);
+          color: white;
+          padding: 20px 30px;
+          border-radius: 10px;
+          box-shadow: 0 8px 32px rgba(231, 76, 60, 0.3);
+          font-family: 'Inter', Arial, sans-serif;
+          font-size: 18px;
+          font-weight: bold;
+          text-align: center;
+          animation: shake 0.5s ease-out;
+          border: 2px solid rgba(255, 255, 255, 0.2);
+          backdrop-filter: blur(10px);
+          min-width: 200px;
+        ">
+          <div style="margin-bottom: 10px; font-size: 24px;">❌</div>
+          <div>Error copying</div>
+          <div style="font-size: 14px; opacity: 0.8; margin-top: 10px;">Try again</div>
+        </div>
+      `;
+      
+      // Revert back to original after 2 seconds
+      setTimeout(() => {
+        if (alertElement && alertElement.parentNode) {
+          alertElement.innerHTML = originalContent;
+        }
+      }, 2000);
+      
+    } catch (error) {
+      console.error('Twitch Chat Monitor: Error showing copy error:', error);
+    }
+  }
+
+  // Play audio alert
+  playAudioAlert() {
+    try {
+      // Create and play notification sound
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      
+      // Create beep sound
+      const createBeep = (frequency, duration, volume = 0.3) => {
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        
+        oscillator.frequency.setValueAtTime(frequency, audioContext.currentTime);
+        oscillator.type = 'sine';
+        
+        gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+        gainNode.gain.linearRampToValueAtTime(volume, audioContext.currentTime + 0.01);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
+        
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + duration);
+      };
+      
+      // Play three ascending beeps
+      createBeep(800, 0.2, 0.3);
+      setTimeout(() => createBeep(1000, 0.2, 0.3), 150);
+      setTimeout(() => createBeep(1200, 0.3, 0.3), 300);
+      
+    } catch (error) {
+      console.error('Twitch Chat Monitor: Error playing audio alert:', error);
+      // Fallback: try to play system notification sound
+      try {
+        const audio = new Audio('data:audio/beep');
+        audio.play().catch(() => {
+          console.log('Twitch Chat Monitor: Audio playback not available');
+        });
+      } catch (fallbackError) {
+        console.log('Twitch Chat Monitor: Audio alerts not supported');
+      }
+    }
+  }
+
+  // Flash browser tab
+  flashBrowserTab(command) {
+    try {
+      const originalTitle = document.title;
+      let flashCount = 0;
+      const maxFlashes = 6;
+      
+      const flashInterval = setInterval(() => {
+        if (flashCount >= maxFlashes) {
+          document.title = originalTitle;
+          clearInterval(flashInterval);
+          return;
+        }
+        
+        document.title = flashCount % 2 === 0 
+          ? `🔔 ${command} - Command Detected!` 
+          : originalTitle;
+        
+        flashCount++;
+      }, 500);
+      
+      // Also flash the favicon if possible
+      this.flashFavicon();
+      
+    } catch (error) {
+      console.error('Twitch Chat Monitor: Error flashing browser tab:', error);
+    }
+  }
+
+  // Flash favicon
+  flashFavicon() {
+    try {
+      const originalFavicon = document.querySelector('link[rel="icon"]');
+      if (!originalFavicon) return;
+      
+      const originalHref = originalFavicon.href;
+      
+      // Create notification favicon (red dot)
+      const canvas = document.createElement('canvas');
+      canvas.width = 32;
+      canvas.height = 32;
+      const ctx = canvas.getContext('2d');
+      
+      // Draw red circle
+      ctx.fillStyle = '#ff4444';
+      ctx.beginPath();
+      ctx.arc(16, 16, 14, 0, 2 * Math.PI);
+      ctx.fill();
+      
+      // Draw exclamation mark
+      ctx.fillStyle = 'white';
+      ctx.font = 'bold 20px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText('!', 16, 22);
+      
+      const notificationFavicon = canvas.toDataURL();
+      
+      // Flash favicon
+      let flashCount = 0;
+      const flashInterval = setInterval(() => {
+        if (flashCount >= 6) {
+          originalFavicon.href = originalHref;
+          clearInterval(flashInterval);
+          return;
+        }
+        
+        originalFavicon.href = flashCount % 2 === 0 ? notificationFavicon : originalHref;
+        flashCount++;
+      }, 500);
+      
+    } catch (error) {
+      console.error('Twitch Chat Monitor: Error flashing favicon:', error);
+    }
+  }
+
+  // Stop observing (cleanup)
+  stop() {
+    if (this.observer) {
+      this.observer.disconnect();
+      this.observer = null;
+    }
+    
+    // Clear refresh interval
+    if (this.refreshInterval) {
+      clearInterval(this.refreshInterval);
+      this.refreshInterval = null;
+    }
+    
+    this.isActive = false;
+    this.isHistoryVisible = false;
+    this.uncopiedCommands = 0;
+    this.copiedCommands.clear();
+    this.neutralCommands.clear();
+    this.commandCooldowns.clear();
+    this.commandHistory = [];
+    
+    // Remove notification area
+    const notificationArea = document.getElementById('twitch-command-history');
+    if (notificationArea) {
+      notificationArea.remove();
+    }
+    
+    // Remove toggle icon
+    const toggleIcon = document.getElementById('twitch-history-toggle');
+    if (toggleIcon) {
+      toggleIcon.remove();
+    }
+    
+    console.log('Twitch Chat Monitor: Stopped observing');
+  }
+
+  // Set trigger count (how many times command must appear to trigger alert)
+  setTriggerCount(count) {
+    if (typeof count === 'number' && count >= 1 && count <= 10) {
+      this.triggerCount = Math.floor(count);
+      console.log(`Twitch Chat Monitor: Trigger count set to ${this.triggerCount}`);
+      return true;
+    } else {
+      console.error('Twitch Chat Monitor: Invalid trigger count. Must be a number between 1 and 10.');
+      return false;
+    }
+  }
+
+  // Set cooldown time in minutes
+  setCooldownMinutes(minutes) {
+    if (typeof minutes === 'number' && minutes >= 1 && minutes <= 60) {
+      this.cooldownMinutes = Math.floor(minutes);
+      console.log(`Twitch Chat Monitor: Cooldown time set to ${this.cooldownMinutes} minutes`);
+      return true;
+    } else {
+      console.error('Twitch Chat Monitor: Invalid cooldown time. Must be a number between 1 and 60 minutes.');
+      return false;
+    }
+  }
+
+  // Get current status
+  getStatus() {
+    return {
+      isActive: this.isActive,
+      isHistoryVisible: this.isHistoryVisible,
+      triggerCount: this.triggerCount,
+      cooldownMinutes: this.cooldownMinutes,
+      uncopiedCommands: this.uncopiedCommands,
+      copiedCommands: Array.from(this.copiedCommands),
+      neutralCommands: Array.from(this.neutralCommands),
+      commandCooldowns: Object.fromEntries(this.commandCooldowns),
+      commandHistory: this.commandHistory,
+      markedMessagesCount: document.querySelectorAll('[data-twitch-monitor-processed="true"]').length,
+      hasChatContainer: !!this.chatContainer
+    };
+  }
+
+  // Debug function to see all marked messages
+  getMarkedMessages() {
+    const markedMessages = document.querySelectorAll('[data-a-target="chat-line-message-body"][data-twitch-monitor-processed="true"]');
+    const messages = [];
+    
+    markedMessages.forEach(messageBody => {
+      const messageText = messageBody.textContent.trim();
+      const command = this.extractCommand(messageText);
+      messages.push({
+        text: messageText,
+        command: command,
+        isCommand: !!command
+      });
+    });
+    
+    console.log('All marked messages:', messages);
+    return messages;
+  }
+}
+
+  // Initialize command monitor
+  const twitchChatMonitor = new TwitchChatMonitor();
+
+  // Start monitoring when page is ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      setTimeout(() => twitchChatMonitor.init(), 1000);
+    });
+  } else {
+    setTimeout(() => twitchChatMonitor.init(), 1000);
+  }
+
+  // Cleanup on page unload
+  window.addEventListener('beforeunload', () => {
+    twitchChatMonitor.stop();
+    delete window.twitchChatMonitorExecuted;
+  });
+
+  // Expose to global scope for debugging
+  window.twitchChatMonitor = twitchChatMonitor;
+
+  // Para instruções detalhadas de configuração, consulte: docs/configuracao-pt-BR.md
+
+})();
