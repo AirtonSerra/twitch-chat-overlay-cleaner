@@ -29,35 +29,32 @@
   function addViewStreamButton() {
     const currentUrl = window.location.href;
     
-    // Only add button if we're in a chat popup
-    if (currentUrl.includes('/popout/') && currentUrl.includes('/chat')) {
-      const targetContainer = document.querySelector('.Layout-sc-1xcs6mc-0.lnazSn');
-      
-      if (targetContainer) {
-        // Check if button already exists to avoid duplicates
-        if (!targetContainer.querySelector('[data-a-target="view-stream-button"]')) {
-          // Extract streamer name from popup URL
-          // Format: https://www.twitch.tv/popout/STREAMER_NAME/chat?popout=
-          const match = currentUrl.match(/\/popout\/([^\/]+)\/chat/);
-          if (match) {
-            const streamerName = match[1];
-            const targetUrl = `https://www.twitch.tv/${streamerName}`;
-            
-            // Create the view stream button HTML
-            const viewStreamButtonHTML = `
-              <div class="InjectLayout-sc-1i43xsx-0 iDMNUO" style="margin-right: 5px;">
-                <button data-a-target="view-stream-button" aria-label="View Stream" class="ScCoreButton-sc-ocjdkq-0 jxDhnp" onclick="window.open('${targetUrl}', '_blank')">
-                  <div class="ScCoreButtonLabel-sc-s7h2b7-0 kaIUar">
-                    <div data-a-target="tw-core-button-label-text" class="Layout-sc-1xcs6mc-0 JckMc">View Stream</div>
-                  </div>
-                </button>
-              </div>
-            `;
-            
-            // Insert the button at the beginning
-            targetContainer.insertAdjacentHTML('afterbegin', viewStreamButtonHTML);
-            console.log('Twitch Chat Overlay Cleaner: "View Stream" button added successfully');
-          }
+    const targetContainer = document.querySelector('.Layout-sc-1xcs6mc-0.lnazSn');
+    
+    if (targetContainer) {
+      // Check if button already exists to avoid duplicates
+      if (!targetContainer.querySelector('[data-a-target="view-stream-button"]')) {
+        // Extract streamer name from popup URL
+        // Format: https://www.twitch.tv/popout/STREAMER_NAME/chat?popout=
+        const match = currentUrl.match(/\/popout\/([^\/]+)\/chat/);
+        if (match) {
+          const streamerName = match[1];
+          const targetUrl = `https://www.twitch.tv/${streamerName}`;
+          
+          // Create the view stream button HTML
+          const viewStreamButtonHTML = `
+            <div class="InjectLayout-sc-1i43xsx-0 iDMNUO" style="margin-right: 5px;">
+              <button data-a-target="view-stream-button" aria-label="View Stream" class="ScCoreButton-sc-ocjdkq-0 jxDhnp" onclick="window.open('${targetUrl}', '_blank')">
+                <div class="ScCoreButtonLabel-sc-s7h2b7-0 kaIUar">
+                  <div data-a-target="tw-core-button-label-text" class="Layout-sc-1xcs6mc-0 JckMc">View Stream</div>
+                </div>
+              </button>
+            </div>
+          `;
+          
+          // Insert the button at the beginning
+          targetContainer.insertAdjacentHTML('afterbegin', viewStreamButtonHTML);
+          console.log('Twitch Chat Overlay Cleaner: "View Stream" button added successfully');
         }
       }
     }

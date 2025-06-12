@@ -1269,6 +1269,4 @@ class TwitchChatMonitor {
   // Expose to global scope for debugging
   window.twitchChatMonitor = twitchChatMonitor;
 
-  // Para instruções detalhadas de configuração, consulte: docs/configuracao-pt-BR.md
-
 })();

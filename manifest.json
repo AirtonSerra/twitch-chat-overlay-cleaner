@@ -1,14 +1,30 @@
 {
     "manifest_version": 3,
     "name": "Twitch Chat Overlay Cleaner",
-    "version": "1.1",
-    "description": "Remove overlays that block Twitch chat, add navigation elements, and auto-respond to chat commands.",
-    "permissions": ["scripting", "activeTab", "tabs"],
-    "action": {
-        "default_title": "Clean Twitch Chat Overlay"
-    },
+    "version": "1.0",
+    "description": "Remove overlays from Twitch chat and add useful features",
+    "permissions": [
+        "scripting",
+        "tabs"
+    ],
+    "host_permissions": [
+        "*://*.twitch.tv/*"
+    ],
     "background": {
         "service_worker": "background.js"
     },
-    "host_permissions": ["https://www.twitch.tv/*"]
+    "action": {
+        "default_icon": {
+            "16": "icons/icon16-inactive.png",
+            "32": "icons/icon32-inactive.png",
+            "48": "icons/icon48-inactive.png",
+            "128": "icons/icon128-inactive.png"
+        }
+    },
+    "icons": {
+        "16": "icons/icon16-inactive.png",
+        "32": "icons/icon32-inactive.png",
+        "48": "icons/icon48-inactive.png",
+        "128": "icons/icon128-inactive.png"
+    }
 }

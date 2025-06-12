@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background Circle -->
+  <circle cx="64" cy="64" r="60" fill="#18181B" stroke="#000000" stroke-width="2"/>
+  
+  <!-- Chat Bubble Base -->
+  <path d="M40 38 h48 a8 8 0 0 1 8 8 v36 a8 8 0 0 1 -8 8 h-12 l-12 12 l-12 -12 h-12 a8 8 0 0 1 -8 -8 v-36 a8 8 0 0 1 8 -8" 
+        fill="#9146FF" 
+        class="main-color"/>
+  
+  <!-- Clean Lines -->
+  <g stroke="#FFFFFF" stroke-width="3" stroke-linecap="round">
+    <line x1="48" y1="52" x2="80" y2="52"/>
+    <line x1="48" y1="62" x2="80" y2="62"/>
+    <line x1="48" y1="72" x2="70" y2="72"/>
+  </g>
+</svg> 

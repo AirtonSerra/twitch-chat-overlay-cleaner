@@ -1,86 +1,128 @@
-// Background script for Twitch Chat Overlay Cleaner
-// Executes the cleaning script when the extension icon is clicked
+// Global state to control execution
+let isEnabled = false;
 
-chrome.action.onClicked.addListener(async (tab) => {
+// Function to execute scripts in a Twitch tab
+async function executeScripts(tabId) {
   try {
-    // Get all open tabs
-    const allTabs = await chrome.tabs.query({});
-    
-    // Filter Twitch tabs
-    const twitchTabs = allTabs.filter(tab => 
-      tab.url && tab.url.includes('twitch.tv')
-    );
-    
-    if (twitchTabs.length > 0) {
-      let successCount = 0;
-      let errorCount = 0;
-      
-      // Execute the cleaning script in all Twitch tabs
-      for (const twitchTab of twitchTabs) {
-        try {
-          await chrome.scripting.executeScript({
-            target: { tabId: twitchTab.id },
-            files: ['remover.js', 'viewStreamButton.js', 'commandMonitor.js']
-          });
-          successCount++;
-          console.log(`Twitch Chat Overlay Cleaner executed successfully on tab: ${twitchTab.title}`);
-        } catch (error) {
-          errorCount++;
-          console.error(`Error executing on tab ${twitchTab.id}:`, error);
-        }
+    // First inject and execute the load checker script
+    await chrome.scripting.executeScript({
+      target: { tabId: tabId },
+      func: () => {
+        return new Promise((resolve) => {
+          const wait = () => {
+            console.log('Page fully loaded or timeout reached.');
+            resolve();
+          };
+
+          if (document.readyState === 'complete') {
+            console.log('Page already in complete state.');
+            wait();
+          } else {
+            let resolved = false;
+
+            window.addEventListener('load', () => {
+              if (!resolved) {
+                resolved = true;
+                wait();
+              }
+            });
+
+            // Fallback timeout in case 'load' event was missed
+            setTimeout(() => {
+              if (!resolved) {
+                resolved = true;
+                wait();
+              }
+            }, 5000); // 5 seconds fallback
+          }
+        });
       }
-      
-      console.log(`Twitch Chat Overlay Cleaner: Executed on ${successCount}/${twitchTabs.length} Twitch tabs`);
-      
-      // Show badge with number of tabs cleaned
-      chrome.action.setBadgeText({
-        text: successCount.toString()
-      });
-      chrome.action.setBadgeBackgroundColor({
-        color: '#9146ff'
-      });
-      
-      // Clear badge after 4 seconds
-      setTimeout(() => {
-        chrome.action.setBadgeText({
-          text: ''
-        });
-      }, 4000);
-      
-    } else {
-      // No Twitch tabs found
-      console.log('No Twitch tabs found');
-      
-      chrome.action.setBadgeText({
-        text: '0'
-      });
-      chrome.action.setBadgeBackgroundColor({
-        color: '#666666'
-      });
-      
-      // Clear badge after 3 seconds
-      setTimeout(() => {
-        chrome.action.setBadgeText({
-          text: ''
-        });
-      }, 3000);
-    }
-    
+    });
+
+    // Then execute our main scripts
+    await chrome.scripting.executeScript({
+      target: { tabId: tabId },
+      files: ['remover.js', 'viewStreamButton.js', 'commandMonitor.js']
+    });
+    console.log(`Twitch Chat Overlay Cleaner executed successfully on tab: ${tabId}`);
   } catch (error) {
-    console.error('Error getting tabs:', error);
-    
-    // Show error badge
-    chrome.action.setBadgeText({
-      text: '!'
-    });
-    chrome.action.setBadgeBackgroundColor({
-      color: '#FF0000'
-    });
-    
-    setTimeout(() => {
-      chrome.action.setBadgeText({
-        text: ''
-      });
-    }, 3000);
+    console.error(`Error executing on tab ${tabId}:`, error);
+  }
+}
+
+// Function to check if URL is from Twitch popout chat
+function isTwitchPopoutChat(url) {
+  return url && url.includes('twitch.tv') && url.includes('/popout/') && url.includes('/chat');
+}
+
+// Function to start monitoring
+async function startMonitoring() {
+  isEnabled = true;
+  
+  // Execute on all existing Twitch popout chat tabs
+  const allTabs = await chrome.tabs.query({});
+  const twitchPopoutTabs = allTabs.filter(tab => isTwitchPopoutChat(tab.url));
+  
+  for (const tab of twitchPopoutTabs) {
+    await executeScripts(tab.id);
+  }
+  
+  // Update icon to active state
+  chrome.action.setIcon({
+    path: {
+      "16": "icons/icon16-active.png",
+      "32": "icons/icon32-active.png",
+      "48": "icons/icon48-active.png",
+      "128": "icons/icon128-active.png"
+    }
+  });
+  
+  console.log('Twitch popout chat monitoring started');
+}
+
+// Function to stop monitoring
+function stopMonitoring() {
+  isEnabled = false;
+  
+  // Update icon to inactive state
+  chrome.action.setIcon({
+    path: {
+      "16": "icons/icon16-inactive.png",
+      "32": "icons/icon32-inactive.png",
+      "48": "icons/icon48-inactive.png",
+      "128": "icons/icon128-inactive.png"
+    }
+  });
+  
+  console.log('Twitch popout chat monitoring stopped');
+}
+
+// Extension icon click listener
+chrome.action.onClicked.addListener(async () => {
+  if (isEnabled) {
+    stopMonitoring();
+  } else {
+    await startMonitoring();
+  }
+});
+
+// Listen for new tabs being created
+chrome.tabs.onCreated.addListener(async (tab) => {
+  if (isEnabled && isTwitchPopoutChat(tab.url)) {
+    await executeScripts(tab.id);
+  }
+});
+
+// Listen for tab URL updates
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  if (isEnabled && changeInfo.url && isTwitchPopoutChat(changeInfo.url)) {
+    await executeScripts(tabId);
+  }
+});
+
+// Clean up when extension is deactivated
+chrome.runtime.onSuspend.addListener(() => {
+  if (isEnabled) {
+    stopMonitoring();
   }
 }); 
