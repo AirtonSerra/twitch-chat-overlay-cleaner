@@ -24,17 +24,38 @@
   marker.style.display = 'none';
   document.body.appendChild(marker);
 
-  const selectors = [
-    ".chat-room__content div.Layout-sc-1xcs6mc-0",
+  const oneTimeRemovalSelectors = [".chat-room__content div.Layout-sc-1xcs6mc-0"];
+  const periodicRemovalSelectors = [
     ".stream-chat-header", 
-    ".community-highlight-stack__card--wide"
+    ".community-highlight-stack__card--wide",
   ];
 
-  // Remove overlay elements
-  selectors.forEach(selector => {
+  oneTimeRemovalSelectors.forEach(selector => {
     const element = document.querySelector(selector);
     if (element) element.remove();
   });
+
+  // Function to remove elements based on selectors
+  function removeElements() {
+    periodicRemovalSelectors.forEach(selector => {
+      const element = document.querySelector(selector);
+      if (element) element.remove();
+    });
+  }
+
+  // Execute removal every second for 30 seconds
+  let secondsElapsed = 0;
+  const interval = setInterval(() => {
+    removeElements();
+    secondsElapsed++;
+    
+    if (secondsElapsed >= 30) {
+      clearInterval(interval);
+    }
+  }, 1000);
+
+  // Execute once immediately
+  removeElements();
 
   console.log('Twitch Chat Overlay Cleaner: Overlay elements removed successfully');
 

@@ -6,7 +6,9 @@
     "permissions": [
         "scripting",
         "tabs",
-        "activeTab"
+        "activeTab",
+        "storage",
+        "management"
     ],
     "host_permissions": [
         "*://*.twitch.tv/*"
@@ -14,6 +16,10 @@
     "background": {
         "service_worker": "background.js"
     },
+    "web_accessible_resources": [{
+        "resources": ["content_scripts/*"],
+        "matches": ["*://*.twitch.tv/*"]
+    }],
     "action": {
         "default_icon": {
             "16": "icons/icon16-inactive.png",

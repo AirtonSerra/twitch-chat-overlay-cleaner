@@ -28,7 +28,7 @@ class TwitchChatMonitor {
     this.observer = null;
     this.chatContainer = null;
     this.isActive = false;
-    this.cooldownMinutes = 3; // Cooldown time in minutes
+    this.cooldownMinutes = 10; // Cooldown time in minutes
     this.triggerCount = 3; // Number of times command must appear to trigger alert
     this.maxHistoryItems = 10; // Maximum items in history
     this.refreshInterval = null; // Periodic refresh interval
@@ -1290,19 +1290,91 @@ class TwitchChatMonitor {
 
   // Get current status
   getStatus() {
-    return {
-      isActive: this.isActive,
-      isHistoryVisible: this.isHistoryVisible,
-      triggerCount: this.triggerCount,
-      cooldownMinutes: this.cooldownMinutes,
-      uncopiedCommands: this.uncopiedCommands,
-      copiedCommands: Array.from(this.copiedCommands),
-      neutralCommands: Array.from(this.neutralCommands),
-      commandCooldowns: Object.fromEntries(this.commandCooldowns),
-      commandHistory: this.commandHistory,
-      markedMessagesCount: document.querySelectorAll('[data-twitch-monitor-processed="true"]').length,
-      hasChatContainer: !!this.chatContainer
+    const markedMessages = document.querySelectorAll('[data-twitch-monitor-processed="true"]');
+    const initialMessages = document.querySelectorAll('[data-twitch-monitor-initial="true"]');
+    const chatMessages = document.querySelectorAll('[data-a-target="chat-line-message"]');
+    
+    const status = {
+      monitor: {
+        isActive: this.isActive,
+        isHistoryVisible: this.isHistoryVisible,
+        uncopiedCommands: this.uncopiedCommands
+      },
+      config: {
+        triggerCount: this.triggerCount,
+        cooldownMinutes: this.cooldownMinutes,
+        maxHistoryItems: this.maxHistoryItems,
+        autoCloseAlert: this.autoCloseAlert
+      },
+      commands: {
+        cooldowns: Object.fromEntries(this.commandCooldowns),
+        history: this.commandHistory,
+        copied: Array.from(this.copiedCommands),
+        neutral: Array.from(this.neutralCommands)
+      },
+      chat: {
+        container: !!this.chatContainer,
+        totalMessages: chatMessages.length,
+        markedMessages: markedMessages.length,
+        initialMessages: initialMessages.length,
+        processedCommands: this.getMarkedMessages()
+      }
     };
+    
+    console.group('📊 Twitch Chat Monitor Status');
+    
+    console.log('\n📌 Monitor State:');
+    console.table({
+      'Active': status.monitor.isActive,
+      'History Panel Visible': status.monitor.isHistoryVisible,
+      'Uncopied Commands': status.monitor.uncopiedCommands
+    });
+    
+    console.log('\n⚙️ Configuration:');
+    console.table({
+      'Trigger Count': status.config.triggerCount,
+      'Cooldown (minutes)': status.config.cooldownMinutes,
+      'Max History Items': status.config.maxHistoryItems,
+      'Auto Close Alert (seconds)': status.config.autoCloseAlert
+    });
+    
+    console.log('\n💬 Chat Statistics:');
+    console.table({
+      'Chat Container Found': status.chat.container,
+      'Total Messages': status.chat.totalMessages,
+      'Marked Messages': status.chat.markedMessages,
+      'Initial Messages': status.chat.initialMessages
+    });
+    
+    if (status.commands.history.length > 0) {
+      console.log('\n📜 Command History:');
+      console.table(status.commands.history.map(item => ({
+        Command: item.command,
+        Time: item.time,
+        Date: item.date,
+        Copied: this.copiedCommands.has(item.id),
+        Neutral: this.neutralCommands.has(item.id)
+      })));
+    }
+    
+    if (Object.keys(status.commands.cooldowns).length > 0) {
+      console.log('\n⏳ Active Cooldowns:');
+      const now = Date.now();
+      console.table(Object.entries(status.commands.cooldowns).map(([command, timestamp]) => ({
+        Command: command,
+        'Started At': new Date(timestamp).toLocaleTimeString(),
+        'Remaining (min)': Math.ceil((this.cooldownMinutes * 60 * 1000 - (now - timestamp)) / (60 * 1000))
+      })));
+    }
+    
+    if (status.chat.processedCommands.length > 0) {
+      console.log('\n🔍 Last Processed Commands:');
+      console.table(status.chat.processedCommands);
+    }
+    
+    console.groupEnd();
+    
+    return status;
   }
 
   // Debug function to see all marked messages
@@ -1330,10 +1402,10 @@ class TwitchChatMonitor {
   // Start monitoring when page is ready
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
-      setTimeout(() => twitchChatMonitor.init(), 1000);
+      setTimeout(() => twitchChatMonitor.init(), 1500);
     });
   } else {
-    setTimeout(() => twitchChatMonitor.init(), 1000);
+    setTimeout(() => twitchChatMonitor.init(), 1500);
   }
 
   // Cleanup on page unload

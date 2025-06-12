@@ -1,6 +1,70 @@
 // Global state to control execution
 let isEnabled = false;
 
+// Function to get monitor status
+async function getMonitorStatus() {
+  try {
+    const allTabs = await chrome.tabs.query({});
+    const twitchTabs = allTabs.filter(tab => tab.url && tab.url.includes('twitch.tv'));
+    const popoutTabs = twitchTabs.filter(tab => isTwitchPopoutChat(tab.url));
+    
+    const status = {
+      isEnabled,
+      storedState: await chrome.storage.local.get('isEnabled'),
+      extensionId: chrome.runtime.id,
+      activeTabs: {
+        total: allTabs.length,
+        twitch: twitchTabs.length,
+        popoutChat: popoutTabs.length,
+        popoutChatTabs: popoutTabs.map(tab => ({
+          id: tab.id,
+          url: tab.url,
+          status: tab.status
+        }))
+      }
+    };
+    
+    console.table({
+      'Extension Enabled': status.isEnabled,
+      'Stored State': status.storedState.isEnabled,
+      'Extension ID': status.extensionId,
+      'Total Tabs': status.activeTabs.total,
+      'Twitch Tabs': status.activeTabs.twitch,
+      'Popout Chat Tabs': status.activeTabs.popoutChat
+    });
+    
+    if (status.activeTabs.popoutChatTabs.length > 0) {
+      console.log('\nPopout Chat Tabs Details:');
+      console.table(status.activeTabs.popoutChatTabs);
+    }
+    
+    return status;
+  } catch (error) {
+    console.error('[Service Worker] Error getting monitor status:', error);
+    return null;
+  }
+}
+
+// Make status function available globally for service worker
+globalThis.getMonitorStatus = getMonitorStatus;
+
+// Initialize extension state
+async function initializeExtension() {
+  try {
+    // Get saved state, default to enabled
+    const result = await chrome.storage.local.get('isEnabled');
+    isEnabled = result.isEnabled !== undefined ? result.isEnabled : true;
+    
+    if (isEnabled) {
+      await startMonitoring();
+    } else {
+      await stopMonitoring();
+    }
+  } catch (error) {
+    console.error('[Service Worker] Error initializing extension:', error);
+  }
+}
+
 // Function to execute scripts in a Twitch tab
 async function executeScripts(tabId) {
   try {
@@ -42,7 +106,11 @@ async function executeScripts(tabId) {
     // Then execute our main scripts
     await chrome.scripting.executeScript({
       target: { tabId: tabId },
-      files: ['remover.js', 'viewStreamButton.js', 'commandMonitor.js']
+      files: [
+        'content_scripts/remover.js',
+        'content_scripts/viewStreamButton.js',
+        'content_scripts/commandMonitor.js'
+      ]
     });
     console.log(`Twitch Chat Overlay Cleaner executed successfully on tab: ${tabId}`);
   } catch (error) {
@@ -58,6 +126,7 @@ function isTwitchPopoutChat(url) {
 // Function to start monitoring
 async function startMonitoring() {
   isEnabled = true;
+  await chrome.storage.local.set({ isEnabled: true });
   
   // Execute on all existing Twitch popout chat tabs
   const allTabs = await chrome.tabs.query({});
@@ -81,8 +150,9 @@ async function startMonitoring() {
 }
 
 // Function to stop monitoring
-function stopMonitoring() {
+async function stopMonitoring() {
   isEnabled = false;
+  await chrome.storage.local.set({ isEnabled: false });
   
   // Update icon to inactive state
   chrome.action.setIcon({
@@ -100,7 +170,7 @@ function stopMonitoring() {
 // Extension icon click listener
 chrome.action.onClicked.addListener(async () => {
   if (isEnabled) {
-    stopMonitoring();
+    await stopMonitoring();
   } else {
     await startMonitoring();
   }
@@ -149,9 +219,18 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   }
 });
 
-// Clean up when extension is deactivated
-chrome.runtime.onSuspend.addListener(() => {
-  if (isEnabled) {
-    stopMonitoring();
+// Handle extension disable/uninstall events
+chrome.management.onDisabled.addListener(async (info) => {
+  if (info.id === chrome.runtime.id) {
+    await stopMonitoring();
   }
-}); 
+});
+
+chrome.management.onUninstalled.addListener(async (id) => {
+  if (id === chrome.runtime.id) {
+    await stopMonitoring();
+  }
+});
+
+// Initialize when extension loads
+initializeExtension(); 
