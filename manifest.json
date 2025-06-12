@@ -5,7 +5,8 @@
     "description": "Remove overlays from Twitch chat and add useful features",
     "permissions": [
         "scripting",
-        "tabs"
+        "tabs",
+        "activeTab"
     ],
     "host_permissions": [
         "*://*.twitch.tv/*"
