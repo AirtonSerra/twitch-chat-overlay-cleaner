@@ -232,5 +232,24 @@ chrome.management.onUninstalled.addListener(async (id) => {
   }
 });
 
+// Listen for messages from content scripts
+chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
+  try {
+    if (message.action === 'requestAttention') {
+      // Get the window ID of the sender tab
+      const tab = sender.tab;
+      if (tab && tab.windowId) {
+        // Make the window flash to draw attention
+        await chrome.windows.update(tab.windowId, { 
+          focused: true,
+          drawAttention: true 
+        });
+      }
+    }
+  } catch (error) {
+    console.error('Error handling message:', error);
+  }
+});
+
 // Initialize when extension loads
 initializeExtension(); 

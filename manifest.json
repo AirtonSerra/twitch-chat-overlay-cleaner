@@ -8,7 +8,9 @@
         "tabs",
         "activeTab",
         "storage",
-        "management"
+        "management",
+        "windows",
+        "notifications"
     ],
     "host_permissions": [
         "*://*.twitch.tv/*"

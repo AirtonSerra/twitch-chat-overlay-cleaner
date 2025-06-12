@@ -37,6 +37,7 @@ class TwitchChatMonitor {
     this.copiedCommands = new Set(); // Track which commands from history were copied
     this.neutralCommands = new Set(); // Track commands that became neutral (old commands)
     this.autoCloseAlert = 30; // Time in seconds to auto-close alert
+    this.ignoredCommands = new Set(['!pokecheck']); // Lista de comandos ignorados
   }
 
   // Initialize the chat monitor
@@ -183,6 +184,12 @@ class TwitchChatMonitor {
 
       const command = this.extractCommand(messageText);
       if (command) {
+        // Check if command is in the ignored list
+        if (this.ignoredCommands.has(command)) {
+          console.log(`Twitch Chat Monitor: Ignoring command "${command}" as it's in the ignored list`);
+          return;
+        }
+
         console.log(`Twitch Chat Monitor: New command detected: "${command}" from message: "${messageText}"`);
         
         // Mark this message as processed BEFORE handling
@@ -1160,6 +1167,12 @@ class TwitchChatMonitor {
       let flashCount = 0;
       const maxFlashes = 6;
       
+      // Solicita atenção da aba usando a API do Chrome
+      chrome.runtime.sendMessage({ 
+        action: 'requestAttention',
+        command: command 
+      });
+
       const flashInterval = setInterval(() => {
         if (flashCount >= maxFlashes) {
           document.title = originalTitle;
@@ -1395,6 +1408,33 @@ class TwitchChatMonitor {
     console.log('All marked messages:', messages);
     return messages;
   }
+
+  // Add command to ignored list
+  addIgnoredCommand(command) {
+    if (command && typeof command === 'string') {
+      this.ignoredCommands.add(command);
+      console.log(`Twitch Chat Monitor: Added "${command}" to ignored commands list`);
+      return true;
+    }
+    return false;
+  }
+
+  // Remove command from ignored list
+  removeIgnoredCommand(command) {
+    if (command && typeof command === 'string') {
+      const removed = this.ignoredCommands.delete(command);
+      if (removed) {
+        console.log(`Twitch Chat Monitor: Removed "${command}" from ignored commands list`);
+      }
+      return removed;
+    }
+    return false;
+  }
+
+  // Get list of ignored commands
+  getIgnoredCommands() {
+    return Array.from(this.ignoredCommands);
+  }
 }
   // Initialize command monitor
   const twitchChatMonitor = new TwitchChatMonitor();
@@ -1402,10 +1442,10 @@ class TwitchChatMonitor {
   // Start monitoring when page is ready
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
-      setTimeout(() => twitchChatMonitor.init(), 1500);
+      setTimeout(() => twitchChatMonitor.init(), 2000);
     });
   } else {
-    setTimeout(() => twitchChatMonitor.init(), 1500);
+    setTimeout(() => twitchChatMonitor.init(), 2000);
   }
 
   // Cleanup on page unload
