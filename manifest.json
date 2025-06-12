@@ -2,7 +2,7 @@
     "manifest_version": 3,
     "name": "Twitch Chat Overlay Cleaner",
     "version": "1.0",
-    "description": "Remove overlays that block or hinder the visualization of Twitch chat messages.",
+    "description": "Remove overlays that block or hinder the visualization of Twitch chat messages and add useful UI elements.",
     "permissions": ["scripting", "activeTab", "tabs"],
     "action": {
         "default_title": "Clean Twitch Chat Overlay"

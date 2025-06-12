@@ -1,13 +1,15 @@
 # 🧹 Twitch Chat Overlay Cleaner
 
-A lightweight Chrome extension that removes overlays and elements that block or hinder the visualization of Twitch chat messages, providing a cleaner and more readable chat experience.
+A lightweight Chrome extension that removes overlays blocking Twitch chat visualization and adds smart navigation features. It cleans problematic elements on all Twitch pages and provides a "View Stream" button in chat popups for seamless navigation between chat and stream views.
 
 ## 🚀 Features
 
 - **One-Click Cleaning**: Remove chat overlays with a single click
-- **Multi-Tab Support**: Automatically detects and cleans all open Twitch tabs
-- **Visual Feedback**: Badge counter shows how many tabs were cleaned
+- **Smart Navigation**: Adds "View Stream" button in chat popups for easy navigation
+- **Multi-Tab Support**: Automatically detects and processes all open Twitch tabs
+- **Visual Feedback**: Badge counter shows how many tabs were processed
 - **Lightweight**: Minimal resource usage with optimized selectors
+- **Modular Design**: Separate scripts for different functionalities
 - **Non-Intrusive**: Only affects Twitch.tv pages and doesn't store any data
 
 ## 📦 Installation
@@ -19,7 +21,7 @@ A lightweight Chrome extension that removes overlays and elements that block or 
 
 1. **Download the Extension**
    ```bash
-   git clone https://github.com/your-username/twitch-chat-overlay-cleaner.git
+   git clone https://github.com/AirtonSerra/twitch-chat-overlay-cleaner.git
    ```
    Or download as ZIP and extract
 
@@ -34,32 +36,45 @@ A lightweight Chrome extension that removes overlays and elements that block or 
 
 ## 🎯 Usage
 
-1. **Open Twitch**: Navigate to any Twitch stream
+1. **Open Twitch**: Navigate to any Twitch stream or chat popup
 2. **Click the Extension**: Click the 🧹 icon in your Chrome toolbar
-3. **Watch the Magic**: Chat overlays will be removed instantly
+3. **Watch the Magic**: 
+   - Chat overlays will be removed instantly on all Twitch pages
+   - A "View Stream" button will be added in chat popups for easy navigation
 4. **Multi-Tab Support**: The extension automatically works on all open Twitch tabs
 
+### Specific Behaviors
+- **Regular Twitch Pages**: Only removes overlay elements
+- **Chat Popups**: Removes overlays + adds "View Stream" button to navigate to main stream page
+
 ### Visual Feedback
-- **Green Badge with Number**: Shows successful cleaning on X tabs
+- **Green Badge with Number**: Shows successful processing on X tabs (overlays removed + buttons added where applicable)
 - **Gray Badge with "0"**: No Twitch tabs found
-- **Red Badge with "!"**: Error occurred during cleaning
+- **Red Badge with "!"**: Error occurred during processing
 
 ## 🛠️ Technical Details
 
 ### Files Structure
 ```
 twitch-chat-overlay-cleaner/
-├── manifest.json       # Extension configuration
-├── background.js       # Service worker for tab management
-├── remover.js         # Content script for overlay removal
-└── README.md          # This file
+├── manifest.json          # Extension configuration
+├── background.js          # Service worker for tab management
+├── remover.js            # Content script for overlay removal
+├── viewStreamButton.js   # Content script for navigation button in chat popups
+└── README.md             # This file
 ```
 
-### Targeted Elements
-The extension removes the following problematic elements:
+### Targeted Elements (`remover.js`)
+The extension removes the following problematic elements on all Twitch pages:
 - `.chat-room__content div.Layout-sc-1xcs6mc-0`
 - `.stream-chat-header`
 - `.community-highlight-stack__card--wide`
+
+### Added Elements (`viewStreamButton.js`)
+The extension adds navigation elements specifically in chat popups:
+- **"View Stream" Button**: Injected into `.Layout-sc-1xcs6mc-0.lnazSn` container
+- **Purpose**: Navigate from chat popup to main stream page
+- **Scope**: Only active in chat popup URLs (`/popout/.../chat`)
 
 ### Permissions
 - `scripting`: Execute content scripts on Twitch pages
@@ -75,18 +90,24 @@ The extension removes the following problematic elements:
 
 ### Making Changes
 
-1. **Modify Content Script** (`remover.js`)
+1. **Modify Overlay Removal** (`remover.js`)
    - Add new selectors to target additional overlay elements
    - Test on various Twitch streams and layouts
 
-2. **Update Background Script** (`background.js`)
+2. **Modify Navigation Features** (`viewStreamButton.js`)
+   - Update button styling or functionality
+   - Modify URL parsing logic for different popup formats
+   - Test specifically on chat popup pages
+
+3. **Update Background Script** (`background.js`)
    - Modify tab detection logic
+   - Add or remove content scripts from execution
    - Add new features like scheduling or custom preferences
 
-3. **Testing**
+4. **Testing**
    - Load the extension in developer mode
-   - Test on different Twitch pages and stream layouts
-   - Check browser console for errors
+   - Test on both regular Twitch pages and chat popups
+   - Check browser console for errors from both scripts
 
 ### Adding New Selectors
 
@@ -101,6 +122,42 @@ const selectors = [
   ".your-new-selector-here"  // Add new selectors here
 ];
 ```
+
+### Adding New Navigation Elements
+
+To inject additional UI elements in chat popups:
+
+```javascript
+// In viewStreamButton.js, create a new function similar to addViewStreamButton()
+function addNewNavigationElement() {
+  const currentUrl = window.location.href;
+  
+  // Only add if in chat popup
+  if (currentUrl.includes('/popout/') && currentUrl.includes('/chat')) {
+    const targetContainer = document.querySelector('.your-target-selector');
+    
+    if (targetContainer && !targetContainer.querySelector('.your-element-check')) {
+      const elementHTML = `<div>Your HTML content here</div>`;
+      targetContainer.insertAdjacentHTML('beforeend', elementHTML);
+    }
+  }
+}
+```
+
+### Script Execution
+
+Both scripts run simultaneously when the extension is activated:
+
+1. **`remover.js`** (Universal)
+   - Executes on ALL Twitch pages
+   - Removes problematic overlay elements
+   - Provides console feedback
+
+2. **`viewStreamButton.js`** (Conditional)
+   - Only executes functionality in chat popup URLs
+   - Detects popup format: `/popout/[streamer]/chat`
+   - Extracts streamer name and creates navigation URL
+   - Adds "View Stream" button with click handler
 
 ## 🤝 Contributing
 

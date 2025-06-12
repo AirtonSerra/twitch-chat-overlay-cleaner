@@ -5,7 +5,10 @@ const selectors = [
   ".community-highlight-stack__card--wide"
 ];
 
+// Remove overlay elements
 selectors.forEach(selector => {
   const element = document.querySelector(selector);
   if (element) element.remove();
 });
+
+console.log('Twitch Chat Overlay Cleaner: Overlay elements removed successfully');
