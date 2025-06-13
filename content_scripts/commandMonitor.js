@@ -118,22 +118,25 @@
 
             // 🔄 Guarda o mais recente e reinicia o timer
             this.latestMessageLine = messageLine;
+            const finalBody = this.latestMessageLine.querySelector(
+              '[data-a-target="chat-line-message-body"]'
+            );
+            const text = finalBody?.textContent?.trim();
+
+            if (text && text.toLowerCase().includes("@salazar016")) {
+              this.highlightMentionMessage(messageLine);
+            }
 
             clearTimeout(this.debounceTimer);
             this.debounceTimer = setTimeout(() => {
               if (
                 this.latestMessageLine &&
-                !this.seenMessages.has(this.latestMessageLine)
+                !this.seenMessages.has(this.latestMessageLine) &&
+                text
               ) {
-                const finalBody = this.latestMessageLine.querySelector(
-                  '[data-a-target="chat-line-message-body"]'
-                );
-                const text = finalBody?.textContent?.trim();
-                if (text) {
-                  this.seenMessages.add(this.latestMessageLine);
-                  console.log("✅ Processando mensagem final:", text);
-                  this.processNewMessage(this.latestMessageLine);
-                }
+                this.seenMessages.add(this.latestMessageLine);
+                console.log("✅ Processando mensagem final:", text);
+                this.processNewMessage(this.latestMessageLine);
               }
             }, 150);
           });
