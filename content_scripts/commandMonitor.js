@@ -43,7 +43,7 @@
       this.copiedCommands = new Set(); // Track which commands from history were copied
       this.neutralCommands = new Set(); // Track commands that became neutral (old commands)
       this.autoCloseAlert = 30; // Time in seconds to auto-close alert
-      this.ignoredCommands = new Set(["!pokecheck"]); // Lista de comandos ignorados
+      this.ignoredCommands = new Set(["!poke"]); // List of ignored commands
       this.latestMessageNode = null;
       this.debounceTimer = null;
       this.seenMessages = new WeakSet();
@@ -123,7 +123,7 @@
             );
             const text = finalBody?.textContent?.trim();
 
-            if (text && text.toLowerCase().includes("@salazar016")) {
+            if (text && text.toLowerCase().includes("salazar016")) {
               this.highlightMentionMessage(messageLine);
             }
 
@@ -245,7 +245,7 @@
           return;
         }
 
-        if (messageText.toLowerCase().includes("@salazar016")) {
+        if (messageText.toLowerCase().includes("salazar016")) {
           this.highlightMentionMessage(messageBody);
           this.playMentionAlert();
           this.chromeRuntimeSendMessage("You were mentioned!");
@@ -260,9 +260,9 @@
         const command = this.extractCommand(messageText);
         if (command) {
           // Check if command is in the ignored list
-          if (this.ignoredCommands.has(command)) {
+          if (this.isIgnoredCommand(command)) {
             console.log(
-              `Twitch Chat Monitor: Ignoring command "${command}" as it's in the ignored list`
+              `Twitch Chat Monitor: Ignoring command "${command}" as it matches an ignored pattern`
             );
             return;
           }
@@ -372,7 +372,7 @@
           messageBody.closest(".chat-line__message");
 
         if (messageContainer) {
-          // Apenas adiciona a classe que contém todos os estilos e animações
+          // Only adds the class that contains all styles and animations
           messageContainer.classList.add("mention-highlight");
 
           // Add a marker attribute to avoid re-processing
@@ -401,11 +401,20 @@
       document.head.appendChild(keyframesStyle);
     }
 
-    // Extract command from message (starts with "!" followed by single word)
+    // Extract command from message (starts with "!" followed by word and optional parameters)
     extractCommand(messageText) {
-      const commandRegex = /^!(\w+)$/;
+      const commandRegex = /^!(\S+).*$/;
       const match = messageText.match(commandRegex);
-      return match ? match[0] : null; // Return full command including "!"
+      return match ? match[0] : null; // Return full command including "!" and parameters
+    }
+
+    // Check if command should be ignored (exact match or starts with ignored command)
+    isIgnoredCommand(command) {
+      return Array.from(this.ignoredCommands).some(
+        (ignoredCmd) =>
+          command.toLowerCase() === ignoredCmd.toLowerCase() || // Exact match
+          command.toLowerCase().startsWith(ignoredCmd.toLowerCase()) // Starts with ignored command
+      );
     }
 
     // Handle command detection and auto-response
@@ -425,7 +434,15 @@
         return;
       }
 
-      // Usar o dicionário para obter a contagem
+      // Check if command is in the ignored list
+      if (this.isIgnoredCommand(command)) {
+        console.log(
+          `Twitch Chat Monitor: Ignoring command "${command}" as it matches an ignored pattern`
+        );
+        return;
+      }
+
+      // Use the dictionary to get the count
       const commandCount = this.countCommand(command);
       console.log(
         `Twitch Chat Monitor: Command "${command}" total count: ${commandCount}/${this.triggerCount}`
@@ -1175,11 +1192,11 @@
           if (alertOverlay && alertOverlay.parentNode) {
             const contentDiv = alertOverlay.querySelector("div");
             if (contentDiv) {
-              // Remove a animação de pulsar e adiciona a animação de saída
+              // Remove pulsing animation and add exit animation
               contentDiv.classList.remove("alert-enter");
               contentDiv.classList.add("alert-exit");
 
-              // Remove o elemento após a animação terminar
+              // Remove element after animation ends
               contentDiv.addEventListener(
                 "animationend",
                 () => {
@@ -1195,7 +1212,7 @@
           }
         }, this.autoCloseAlert * 1000);
 
-        // Adiciona a classe inicial para as animações de entrada
+        // Add initial class for entry animations
         const contentDiv = alertOverlay.querySelector("div");
         if (contentDiv) {
           contentDiv.classList.add("alert-enter");
@@ -1318,10 +1335,10 @@
         // Close alert after showing success feedback (1.5 seconds)
         setTimeout(() => {
           if (alertElement && alertElement.parentNode) {
-            // Adiciona animação de saída
+            // Add exit animation
             contentDiv.classList.add("alert-exit");
 
-            // Remove elemento após a animação terminar
+            // Remove element after animation ends
             contentDiv.addEventListener(
               "animationend",
               () => {
@@ -1447,7 +1464,7 @@
         let flashCount = 0;
         const maxFlashes = 6;
 
-        // Solicita atenção da aba usando a API do Chrome
+        // Request tab attention using Chrome API
         chrome.runtime.sendMessage({
           action: "requestAttention",
           command: command,
@@ -1756,10 +1773,10 @@
   // Start monitoring when page is ready
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", () => {
-      setTimeout(() => twitchChatMonitor.init(), 2000);
+      setTimeout(() => twitchChatMonitor.init(), 1750);
     });
   } else {
-    setTimeout(() => twitchChatMonitor.init(), 2000);
+    setTimeout(() => twitchChatMonitor.init(), 1750);
   }
 
   // Cleanup on page unload
