@@ -11,9 +11,7 @@
     window.twitchChatMonitorExecuted ||
     document.getElementById("twitch-chat-monitor-executed")
   ) {
-    console.log(
-      "Twitch Chat Monitor: Already executed in this tab, skipping duplicate initialization"
-    );
+    console.log("Twitch Chat Monitor: Already executed in this tab");
     return;
   }
 
@@ -135,7 +133,6 @@
                 text
               ) {
                 this.seenMessages.add(this.latestMessageLine);
-                console.log("✅ Processando mensagem final:", text);
                 this.processNewMessage(this.latestMessageLine);
               }
             }, 150);
@@ -230,25 +227,21 @@
         ) {
           return;
         }
-        console.log("messageBody", messageBody);
-        console.log(
-          "messageBody.hasAttribute('data-twitch-monitor-processed')",
-          messageBody.hasAttribute("data-twitch-monitor-processed")
-        );
-        console.log(
-          "messageBody.hasAttribute('data-twitch-monitor-initial')",
-          messageBody.hasAttribute("data-twitch-monitor-initial")
-        );
 
         const messageText = messageBody.textContent.trim();
         if (!messageText) {
           return;
         }
 
+        console.log(
+          `Twitch Chat Monitor: [${new Date().toLocaleTimeString()}] Processing message:`,
+          messageText
+        );
+
         if (messageText.toLowerCase().includes("salazar016")) {
           this.highlightMentionMessage(messageBody);
           this.playMentionAlert();
-          this.chromeRuntimeSendMessage("You were mentioned!");
+          this.chromeAttentionMessage("You were mentioned!");
 
           // Mark this message as processed BEFORE handling
           messageBody.setAttribute("data-twitch-monitor-processed", "true");
@@ -283,7 +276,7 @@
       }
     }
 
-    chromeRuntimeSendMessage(command) {
+    chromeAttentionMessage(command) {
       try {
         if (chrome?.runtime?.id) {
           chrome.runtime.sendMessage({
@@ -405,7 +398,7 @@
     extractCommand(messageText) {
       const commandRegex = /^!(\S+).*$/;
       const match = messageText.match(commandRegex);
-      return match ? match[0] : null; // Return full command including "!" and parameters
+      return match ? match[0].toLowerCase() : null; // Return full command including "!" and parameters
     }
 
     // Check if command should be ignored (exact match or starts with ignored command)
@@ -1465,10 +1458,7 @@
         const maxFlashes = 6;
 
         // Request tab attention using Chrome API
-        chrome.runtime.sendMessage({
-          action: "requestAttention",
-          command: command,
-        });
+        this.chromeAttentionMessage(command);
 
         const flashInterval = setInterval(() => {
           if (flashCount >= maxFlashes) {
