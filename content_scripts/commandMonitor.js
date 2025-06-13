@@ -1005,9 +1005,6 @@
     // Show visual feedback when history item is copied
     showHistoryItemFeedback(itemElement, command) {
       try {
-        const originalBackground = itemElement.style.background;
-        const originalContent = itemElement.innerHTML;
-
         // Flash green and show checkmark with immediate white text
         itemElement.style.background =
           "linear-gradient(135deg, #00b894, #00a085)";
@@ -1028,9 +1025,7 @@
 
         // Revert after 1 second
         setTimeout(() => {
-          itemElement.style.background = originalBackground;
           itemElement.style.transform = "scale(1)";
-          itemElement.innerHTML = originalContent;
 
           // Re-add listeners since we replaced innerHTML
           this.addHistoryItemListeners();
