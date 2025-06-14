@@ -1,43 +1,43 @@
 // Optimized Twitch Chat Overlay Cleaner
-(function() {
-  'use strict';
+(function () {
+  "use strict";
 
   // Check if already executed in this tab
-  const REMOVER_ID = 'twitch-overlay-remover-executed';
-  
+  const REMOVER_ID = "twitch-overlay-remover-executed";
+
   if (
-    window.twitchOverlayRemoverExecuted || 
-    document.getElementById(REMOVER_ID) ||
-    sessionStorage.getItem(REMOVER_ID)
+    window.twitchOverlayRemoverExecuted ||
+    document.getElementById(REMOVER_ID)
   ) {
-    console.log('Twitch Chat Overlay Cleaner: Already executed in this tab');
+    console.log("Twitch Chat Overlay Cleaner: Already executed in this tab");
     return;
   }
 
   // Mark as executed
   window.twitchOverlayRemoverExecuted = true;
-  sessionStorage.setItem(REMOVER_ID, 'true');
-  
+
   // Create hidden marker
-  const marker = document.createElement('div');
+  const marker = document.createElement("div");
   marker.id = REMOVER_ID;
-  marker.style.display = 'none';
+  marker.style.display = "none";
   document.body.appendChild(marker);
 
-  const oneTimeRemovalSelectors = [".chat-room__content div.Layout-sc-1xcs6mc-0"];
+  const oneTimeRemovalSelectors = [
+    ".chat-room__content div.Layout-sc-1xcs6mc-0",
+  ];
   const periodicRemovalSelectors = [
-    ".stream-chat-header", 
+    ".stream-chat-header",
     ".community-highlight-stack__card--wide",
   ];
 
-  oneTimeRemovalSelectors.forEach(selector => {
+  oneTimeRemovalSelectors.forEach((selector) => {
     const element = document.querySelector(selector);
     if (element) element.remove();
   });
 
   // Function to remove elements based on selectors
   function removeElements() {
-    periodicRemovalSelectors.forEach(selector => {
+    periodicRemovalSelectors.forEach((selector) => {
       const element = document.querySelector(selector);
       if (element) element.remove();
     });
@@ -48,7 +48,7 @@
   const interval = setInterval(() => {
     removeElements();
     secondsElapsed++;
-    
+
     if (secondsElapsed >= 30) {
       clearInterval(interval);
     }
@@ -57,12 +57,13 @@
   // Execute once immediately
   removeElements();
 
-  console.log('Twitch Chat Overlay Cleaner: Overlay elements removed successfully');
+  console.log(
+    "Twitch Chat Overlay Cleaner: Overlay elements removed successfully"
+  );
 
   // Cleanup on page unload
-  window.addEventListener('beforeunload', () => {
+  window.addEventListener("beforeunload", () => {
     delete window.twitchOverlayRemoverExecuted;
-    sessionStorage.removeItem(REMOVER_ID);
     const markerElement = document.getElementById(REMOVER_ID);
     if (markerElement) {
       markerElement.remove();
