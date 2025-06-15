@@ -1008,12 +1008,12 @@
         // Flash green and show checkmark with immediate white text
         itemElement.style.background =
           "linear-gradient(135deg, #00b894, #00a085)";
-        itemElement.style.transform = "scale(1.02)";
 
         // Add checkmark temporarily with white text immediately
         const commandDiv = itemElement.querySelector("div");
         if (commandDiv) {
-          commandDiv.innerHTML = `✅ ${command} - Copied!`;
+          const originalText = commandDiv.innerHTML;
+          commandDiv.innerHTML = `✔ ${originalText} - Copied!`;
           commandDiv.style.color = "#ffffff"; // Force white color immediately
         }
 
@@ -1025,10 +1025,7 @@
 
         // Revert after 1 second
         setTimeout(() => {
-          itemElement.style.transform = "scale(1)";
-
-          // Re-add listeners since we replaced innerHTML
-          this.addHistoryItemListeners();
+          commandDiv.innerHTML = originalText;
         }, 1000);
       } catch (error) {
         console.error(
