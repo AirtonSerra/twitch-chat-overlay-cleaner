@@ -1029,7 +1029,7 @@
         }, 1000);
       } catch (error) {
         console.error(
-          "Twitch Chat Monitor: Error showing history item feedback:",
+          "Twitch Chat Monitor: Error showing history item feedback: ",
           error
         );
       }
