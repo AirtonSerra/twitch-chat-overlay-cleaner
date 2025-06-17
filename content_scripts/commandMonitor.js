@@ -921,22 +921,37 @@
           // Add hover effects
           item.addEventListener("mouseenter", () => {
             item.style.transform = "scale(1.02)";
-            // Brighten the existing background slightly on hover
-            if (item.style.background.includes("0, 184, 148")) {
-              // Green (copied) - make brighter green
+
+            // Check if the item has been copied
+            const itemId = item.getAttribute("data-id");
+            const isCopied = this.copiedCommands.has(itemId);
+
+            if (isCopied) {
+              // If copied, keep green but slightly brighter
               item.style.background = "rgba(0, 184, 148, 0.25)";
             } else if (item.style.background.includes("255, 68, 68")) {
-              // Red (not copied) - make brighter red
+              // Not copied - brighter red
               item.style.background = "rgba(255, 68, 68, 0.25)";
             } else {
-              // Neutral - make brighter white
+              // Neutral - brighter white
               item.style.background = "rgba(255, 255, 255, 0.1)";
             }
           });
 
           item.addEventListener("mouseleave", () => {
             item.style.transform = "scale(1)";
-            item.style.background = originalBackground;
+
+            // Check the state again when mouse leaves
+            const itemId = item.getAttribute("data-id");
+            const isCopied = this.copiedCommands.has(itemId);
+
+            if (isCopied) {
+              // If copied, keep the original green
+              item.style.background = "rgba(0, 184, 148, 0.15)";
+            } else {
+              // If not copied, return to original background
+              item.style.background = originalBackground;
+            }
           });
         });
       } catch (error) {
@@ -1005,27 +1020,41 @@
     // Show visual feedback when history item is copied
     showHistoryItemFeedback(itemElement, command) {
       try {
-        // Flash green and show checkmark with immediate white text
-        itemElement.style.background =
-          "linear-gradient(135deg, #00b894, #00a085)";
+        // Apply permanent copied style
+        itemElement.style.background = "rgba(0, 184, 148, 0.15)";
+        itemElement.style.borderColor = "rgba(0, 184, 148, 0.3)";
 
         // Add checkmark temporarily with white text immediately
         const commandDiv = itemElement.querySelector("div");
+        let originalText = command; // Default to command if div not found
+
         if (commandDiv) {
-          const originalText = commandDiv.innerHTML;
+          // Save original text
+          originalText = commandDiv.innerHTML;
+
+          // Show temporary visual feedback
+          itemElement.style.background =
+            "linear-gradient(135deg, #00b894, #00a085)";
           commandDiv.innerHTML = `✔ ${originalText} - Copied!`;
-          commandDiv.style.color = "#ffffff"; // Force white color immediately
+          commandDiv.style.color = "#ffffff";
         }
 
-        // Change timestamp text color to white
+        // Change timestamp text color to white temporarily
         const timestampDiv = itemElement.querySelector("div:nth-child(2)");
         if (timestampDiv) {
           timestampDiv.style.color = "#ffffff";
         }
 
-        // Revert after 1 second
+        // Revert only the temporary visual feedback after 1 second
         setTimeout(() => {
-          commandDiv.innerHTML = originalText;
+          if (commandDiv) {
+            commandDiv.innerHTML = originalText;
+            commandDiv.style.color = "#00b894"; // Permanent green color
+          }
+          if (timestampDiv) {
+            timestampDiv.style.color = "#00b894"; // Permanent green color
+          }
+          itemElement.style.background = "rgba(0, 184, 148, 0.15)"; // Back to permanent light green
         }, 1000);
       } catch (error) {
         console.error(
